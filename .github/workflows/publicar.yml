@@ -1,0 +1,48 @@
+# Publica la web (incluido Malenity OS en /os/) en GitHub Pages.
+# Las claves de Supabase NO están en el repositorio: se leen de los secretos
+# del repositorio (Settings → Secrets and variables → Actions) y se escriben
+# en os/config.js solo en la copia que se publica.
+name: Publicar sitio
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Escribir la configuración de Malenity OS
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_PUBLISHABLE_KEY" ]; then
+            printf 'window.MALENITY_CONFIG = { supabaseUrl: "%s", supabaseKey: "%s" };\n' "$SUPABASE_URL" "$SUPABASE_PUBLISHABLE_KEY" > os/config.js
+            echo "Malenity OS conectado a Supabase."
+          else
+            echo "Faltan los secretos de Supabase: Malenity OS queda en modo prueba."
+          fi
+          rm -rf .github
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deploy
+        uses: actions/deploy-pages@v4

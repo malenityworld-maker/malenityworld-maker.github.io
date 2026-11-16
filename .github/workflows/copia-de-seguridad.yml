@@ -1,0 +1,45 @@
+# Copia de seguridad diaria de la base de Malenity OS.
+# Corre todos los días a las 3:00 (hora de Argentina), guarda un archivo
+# CIFRADO con tu contraseña de copias y lo conserva 30 días en GitHub.
+# Aunque el repositorio sea público, sin la contraseña nadie puede abrirlo.
+name: Copia de seguridad
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # 06:00 UTC = 03:00 en Argentina
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  copia:
+    runs-on: ubuntu-latest
+    container: postgres:17
+    steps:
+      - name: Exportar y cifrar
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "Todavía no están los secretos SUPABASE_DB_URL y BACKUP_PASSPHRASE. No hay nada para copiar."
+            exit 0
+          fi
+          apt-get update -qq && apt-get install -y -qq gnupg >/dev/null
+          FECHA=$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)
+          mkdir -p copia
+          pg_dump "$SUPABASE_DB_URL" --schema=public --no-owner --no-privileges -f "copia/malenity-os-$FECHA.sql"
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$BACKUP_PASSPHRASE" \
+              --symmetric --cipher-algo AES256 -o "copia/malenity-os-$FECHA.sql.gpg" "copia/malenity-os-$FECHA.sql"
+          rm "copia/malenity-os-$FECHA.sql"
+          echo "FECHA=$FECHA" >> "$GITHUB_ENV"
+          ls -la copia
+
+      - name: Guardar la copia (30 días)
+        if: env.FECHA != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: malenity-os-${{ env.FECHA }}
+          path: copia/
+          retention-days: 30
